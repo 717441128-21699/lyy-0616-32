@@ -129,27 +129,4 @@ router.post('/:token/reject', async (req, res) => {
   }
 });
 
-router.get('/:token/signed', async (req, res) => {
-  try {
-    const signer = await contractService.getSignerByToken(req.params.token);
-    if (!signer) {
-      return res.status(404).json({ error: '签署链接无效或已过期' });
-    }
-    const contract = await contractService.getContractDetail(signer.contractId);
-    if (!contract || !contract.signedPath) {
-      return res.status(404).json({ error: '文件不存在或尚未签署完成' });
-    }
-    if (contract.status !== 'completed') {
-      return res.status(400).json({ error: '合同尚未完成签署' });
-    }
-    const pdfService = contractService.getPdfService();
-    const buffer = pdfService.readPdf(contract.signedPath);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="signed_${contract.id}.pdf"`);
-    res.send(buffer);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 export { router as signRouter };

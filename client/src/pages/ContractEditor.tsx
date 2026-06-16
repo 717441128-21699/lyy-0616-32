@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import { Contract, Signer, ContractField, FieldType } from '../types';
+import PdfPageViewer from '../components/PdfPageViewer';
 
 const PDF_SCALE = 1.5;
 
@@ -385,10 +386,11 @@ export default function ContractEditor() {
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
               >
-                <iframe
-                  src={`/api/contracts/${id}/template`}
-                  style={{ width: scaledWidth, height: scaledHeight, border: 'none', pointerEvents: 'none' }}
-                  title="PDF Template"
+                <PdfPageViewer
+                  pdfUrl={`/api/contracts/${id}/template`}
+                  pageNumber={currentPage}
+                  scale={PDF_SCALE}
+                  className="absolute inset-0 pointer-events-none"
                 />
                 {currentFields.map((field) => (
                   <div

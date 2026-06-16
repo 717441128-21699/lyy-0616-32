@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../services/api';
+import { downloadFile } from '../services/download';
 import { Contract, BlockchainProof } from '../types';
 
 const statusLabels: Record<string, { label: string; color: string }> = {
@@ -45,7 +46,14 @@ export default function ContractDetail() {
     }
   };
 
-  const getSignedUrl = () => `/api/contracts/${id}/signed`;
+  const handleDownload = async () => {
+    if (!id) return;
+    try {
+      await downloadFile(`/contracts/${id}/signed`, `signed_${id}.pdf`);
+    } catch (err: any) {
+      alert(err.response?.data?.error || '下载失败');
+    }
+  };
 
   if (loading) {
     return <div className="text-center py-12 text-gray-500">加载中...</div>;
@@ -79,12 +87,12 @@ export default function ContractDetail() {
               </Link>
             )}
             {contract.status === 'completed' && (
-              <a
-                href={getSignedUrl()}
+              <button
+                onClick={handleDownload}
                 className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors"
               >
                 下载已签署PDF
-              </a>
+              </button>
             )}
           </div>
         </div>

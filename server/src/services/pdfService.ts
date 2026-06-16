@@ -42,6 +42,20 @@ export class PdfService {
     const pdfBytes = fs.readFileSync(templatePath);
     const pdfDoc = await PDFDocument.load(pdfBytes);
     
+    let cjkFont: any;
+    try {
+      const fontPath = path.join(process.cwd(), 'fonts', 'SimHei.ttf');
+      if (fs.existsSync(fontPath)) {
+        const fontBytes = fs.readFileSync(fontPath);
+        cjkFont = await pdfDoc.embedFont(fontBytes);
+      } else {
+        cjkFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      }
+    } catch (e) {
+      console.warn('加载中文字体失败，使用默认字体:', e);
+      cjkFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    }
+
     const signatureMap = new Map<string, Signature>();
     signatures.forEach(sig => {
       if (sig.fieldId) {
@@ -76,21 +90,19 @@ export class PdfService {
           }
         }
       } else if (field.type === 'date' && field.value) {
-        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
         page.drawText(field.value, {
           x: field.x,
           y: field.y + field.height / 2 - 6,
           size: 12,
-          font,
+          font: cjkFont,
           color: rgb(0, 0, 0)
         });
       } else if (field.type === 'text' && field.value) {
-        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
         page.drawText(field.value, {
           x: field.x,
           y: field.y + field.height / 2 - 6,
           size: 11,
-          font,
+          font: cjkFont,
           color: rgb(0, 0, 0)
         });
       }

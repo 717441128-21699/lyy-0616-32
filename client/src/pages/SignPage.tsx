@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import SignatureCanvas from 'react-signature-canvas';
 import api from '../services/api';
+import { downloadFile } from '../services/download';
 import { ContractField, Signer, SignerStatus } from '../types';
+import PdfPageViewer from '../components/PdfPageViewer';
 
 const PDF_SCALE = 1.5;
 
@@ -32,6 +34,7 @@ interface SignInfo {
 
 export default function SignPage() {
   const { token } = useParams<{ token: string }>();
+  const navigate = useNavigate();
   const [signInfo, setSignInfo] = useState<SignInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -40,6 +43,7 @@ export default function SignPage() {
   const [pageSize, setPageSize] = useState({ width: 595, height: 842 });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
+  const [contractId, setContractId] = useState<string>('');
 
   const [fieldValues, setFieldValues] = useState<Record<string, { value?: string; imageData?: string }>>({});
   const [activeField, setActiveField] = useState<ContractField | null>(null);
@@ -64,6 +68,7 @@ export default function SignPage() {
     try {
       const res = await api.get(`/sign/${token}`);
       setSignInfo(res.data);
+      setContractId(res.data.contract?.id || '');
 
       if (res.data.pdfInfo) {
         setPageCount(res.data.pdfInfo.pageCount);
@@ -192,7 +197,11 @@ export default function SignPage() {
         value: v.value,
         imageData: v.imageData
       }));
-      await api.post(`/sign/${token}/sign`, { fieldValues: values });
+      const res = await api.post(`/sign/${token}/sign`, { fieldValues: values });
+      if (res.data.contract) {
+        setSignInfo(prev => prev ? { ...prev, contract: { ...prev.contract, status: res.data.contract.status } } : prev);
+        setContractId(res.data.contract.id);
+      }
       setCompleted(true);
     } catch (err: any) {
       const errMsg = err.response?.data?.error || '签署失败';
@@ -204,6 +213,22 @@ export default function SignPage() {
       }
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!contractId) return;
+    try {
+      await downloadFile(`/contracts/${contractId}/signed`, `signed_${contractId}.pdf`);
+    } catch (err: any) {
+      const msg = err.response?.data?.error || '下载失败';
+      if (msg.includes('登录') || msg.includes('权限') || msg.includes('token')) {
+        if (confirm('下载需要登录对应邮箱账号，是否去登录？')) {
+          navigate('/login');
+        }
+      } else {
+        alert(msg);
+      }
     }
   };
 
@@ -294,12 +319,12 @@ export default function SignPage() {
             合同名称: <span className="font-medium text-gray-700">{signInfo.contract.title}</span>
           </p>
           {!wasRejected && signInfo.contract.status === 'completed' && (
-            <a
-              href={`/api/sign/${token}/signed`}
+            <button
+              onClick={handleDownload}
               className="inline-block px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors"
             >
               下载已签署PDF
-            </a>
+            </button>
           )}
         </div>
       </div>
@@ -370,10 +395,11 @@ export default function SignPage() {
                   className="pdf-container relative"
                   style={{ width: scaledWidth, height: scaledHeight }}
                 >
-                  <iframe
-                    src={`/api/sign/${token}/template`}
-                    style={{ width: scaledWidth, height: scaledHeight, border: 'none', pointerEvents: 'none' }}
-                    title="Contract PDF"
+                  <PdfPageViewer
+                    pdfUrl={`/api/sign/${token}/template`}
+                    pageNumber={currentPage}
+                    scale={PDF_SCALE}
+                    className="absolute inset-0"
                   />
                   {currentFields.map((field) => {
                     const isFilled = field.type === 'signature'
@@ -523,12 +549,12 @@ export default function SignPage() {
                   <div className="text-4xl mb-2">✅</div>
                   <p className="text-green-600 font-medium">您已完成签署</p>
                   {signInfo.contract.status === 'completed' && (
-                    <a
-                      href={`/api/sign/${token}/signed`}
+                    <button
+                      onClick={handleDownload}
                       className="inline-block w-full py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors"
                     >
                       下载已签署PDF
-                    </a>
+                    </button>
                   )}
                 </div>
               ) : signInfo.signer.status === 'rejected' ? (
@@ -540,12 +566,12 @@ export default function SignPage() {
                 <div className="text-center py-4 space-y-4">
                   <div className="text-4xl mb-2">✅</div>
                   <p className="text-green-600 font-medium">所有签署方已完成签署</p>
-                  <a
-                    href={`/api/sign/${token}/signed`}
+                  <button
+                    onClick={handleDownload}
                     className="inline-block w-full py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors"
                   >
                     下载已签署PDF
-                  </a>
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-3">
