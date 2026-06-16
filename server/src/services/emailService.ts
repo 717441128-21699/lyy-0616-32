@@ -81,17 +81,19 @@ export class EmailService {
   }
 
   async sendCompletedNotification(contract: Contract, recipientEmail: string, recipientName: string): Promise<boolean> {
+    const contractUrl = `${config.frontendUrl}/contracts/${contract.id}?action=download`;
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #28a745;">✅ 合同签署完成</h2>
         <p>尊敬的 ${recipientName}：</p>
         <p>合同 <strong>${contract.title}</strong> 所有签署方均已完成签署。</p>
-        <p>您可以登录系统下载已签署的合同文件。</p>
+        <p>您可以登录系统查看合同详情并下载已签署的PDF文件。</p>
         <p style="margin: 20px 0;">
-          <a href="${config.frontendUrl}" style="display: inline-block; padding: 12px 24px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px;">
-            查看合同
+          <a href="${contractUrl}" style="display: inline-block; padding: 12px 24px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px;">
+            查看合同并下载
           </a>
         </p>
+        <p style="font-size: 13px; color: #666;">点击上方按钮后，请使用对应邮箱账号登录，即可直接进入合同详情页面下载已签署PDF。</p>
         <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
         <p style="font-size: 12px; color: #999;">此邮件由电子合同签署系统自动发送，请勿直接回复。</p>
       </div>

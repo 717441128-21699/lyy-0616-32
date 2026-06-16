@@ -82,3 +82,14 @@ export interface BlockchainProof {
   merkleRoot?: string;
   previousProofHash?: string;
 }
+
+export interface AuditLogEntry {
+  id: string;
+  contractId: string;
+  action: string;
+  actor: string;
+  actorEmail: string;
+  detail?: string;
+  source?: string;
+  createdAt: string;
+}

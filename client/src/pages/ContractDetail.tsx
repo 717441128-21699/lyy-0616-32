@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { downloadFile } from '../services/download';
-import { Contract, BlockchainProof } from '../types';
+import { useAuthStore } from '../store/authStore';
+import { Contract, BlockchainProof, AuditLogEntry } from '../types';
 
 const statusLabels: Record<string, { label: string; color: string }> = {
   draft: { label: '草稿', color: 'bg-gray-100 text-gray-800' },
@@ -24,9 +25,14 @@ const signerStatusLabels: Record<string, { label: string; color: string }> = {
 
 export default function ContractDetail() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const user = useAuthStore((s) => s.user);
   const [contract, setContract] = useState<Contract | null>(null);
   const [proofs, setProofs] = useState<BlockchainProof[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const isCreator = !!contract && !!user && contract.creatorId === user.id;
 
   useEffect(() => {
     loadData();
@@ -41,18 +47,35 @@ export default function ContractDetail() {
         const proofRes = await api.get(`/contracts/${id}/proofs`);
         setProofs(proofRes.data.proofs);
       }
+      try {
+        const auditRes = await api.get(`/contracts/${id}/audit-logs`);
+        setAuditLogs(auditRes.data.logs || []);
+      } catch {
+        setAuditLogs([]);
+      }
+      if (searchParams.get('action') === 'download' && res.data.contract.status === 'completed') {
+        searchParams.delete('action');
+        setSearchParams(searchParams, { replace: true });
+        setTimeout(() => {
+          handleDownloadWithId(res.data.contract.id);
+        }, 500);
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDownload = async () => {
-    if (!id) return;
+  const handleDownloadWithId = async (contractId: string) => {
     try {
-      await downloadFile(`/contracts/${id}/signed`, `signed_${id}.pdf`);
+      await downloadFile(`/contracts/${contractId}/signed`, `signed_${contractId}.pdf`);
     } catch (err: any) {
       alert(err.response?.data?.error || '下载失败');
     }
+  };
+
+  const handleDownload = async () => {
+    if (!id) return;
+    await handleDownloadWithId(id);
   };
 
   if (loading) {
@@ -224,12 +247,13 @@ export default function ContractDetail() {
                               {signerStatusLabels[signer.status]?.label}
                             </span>
                           </div>
-                          {contract.status === 'completed' && (
+                          {isCreator && contract.status === 'completed' && (
                             <button
                               onClick={async () => {
                                 try {
                                   await api.post(`/contracts/${id}/notify`, { signerId: signer.id, type: 'completed' });
                                   alert('完成通知已发送');
+                                  loadData();
                                 } catch (err: any) {
                                   alert(err.response?.data?.error || '发送失败');
                                 }
@@ -240,12 +264,13 @@ export default function ContractDetail() {
                               📧 通知
                             </button>
                           )}
-                          {['pending', 'invited', 'signing'].includes(signer.status) && contract.status !== 'completed' && contract.status !== 'expired' && contract.status !== 'rejected' && (
+                          {isCreator && ['pending', 'invited', 'signing'].includes(signer.status) && contract.status !== 'completed' && contract.status !== 'expired' && contract.status !== 'rejected' && (
                             <button
                               onClick={async () => {
                                 try {
                                   await api.post(`/contracts/${id}/notify`, { signerId: signer.id, type: 'invite' });
                                   alert('邀请邮件已重新发送');
+                                  loadData();
                                 } catch (err: any) {
                                   alert(err.response?.data?.error || '发送失败');
                                 }
@@ -389,6 +414,43 @@ export default function ContractDetail() {
               })()}
             </div>
           </div>
+
+          {isCreator && auditLogs.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">📋 审计日志</h2>
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {auditLogs.map((log) => {
+                  const sourceLabel: Record<string, string> = {
+                    web: '网页端',
+                    email: '邮件',
+                    sign_link: '签署链接',
+                    system: '系统'
+                  };
+                  return (
+                    <div key={log.id} className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
+                      <div className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-gray-400 mt-2"></div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-medium text-gray-900">{log.action}</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
+                            {sourceLabel[log.source || ''] || log.source || '-'}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-0.5 space-x-2">
+                          {log.actor && <span>{log.actor}</span>}
+                          {log.actorEmail && <span>({log.actorEmail})</span>}
+                          <span>· {new Date(log.createdAt).toLocaleString()}</span>
+                        </div>
+                        {log.detail && (
+                          <p className="text-xs text-gray-400 mt-0.5 truncate">{log.detail}</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

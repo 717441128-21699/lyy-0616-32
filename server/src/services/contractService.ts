@@ -8,7 +8,8 @@ import {
   SignerStatus,
   ContractField,
   Signature,
-  User
+  User,
+  AuditLog
 } from '../models';
 import { generateSignToken } from '../middleware/auth';
 import { PdfService } from './pdfService';
@@ -27,6 +28,17 @@ export class ContractService {
     this.blockchainService = new BlockchainService();
   }
 
+  async audit(contractId: string, action: string, actor: string, actorEmail: string, detail?: string, source?: string): Promise<void> {
+    await AuditLog.create({ contractId, action, actor, actorEmail, detail: detail || null, source: source || null });
+  }
+
+  async getAuditLogs(contractId: string): Promise<AuditLog[]> {
+    return AuditLog.findAll({
+      where: { contractId },
+      order: [['createdAt', 'DESC']]
+    });
+  }
+
   async createContract(
     creatorId: string,
     title: string,
@@ -35,7 +47,9 @@ export class ContractService {
     fileName: string,
     expireAt?: Date,
     isRenewalEnabled?: boolean,
-    renewalDays?: number
+    renewalDays?: number,
+    creatorEmail?: string,
+    creatorName?: string
   ): Promise<Contract> {
     const templatePath = await this.pdfService.saveTemplate(fileBuffer, fileName);
     
@@ -50,6 +64,7 @@ export class ContractService {
       renewalDays
     });
 
+    await this.audit(contract.id, '创建合同', creatorName || creatorId, creatorEmail || '', `标题: ${title}`, 'web');
     return contract;
   }
 
@@ -80,6 +95,7 @@ export class ContractService {
     });
 
     signer.setDataValue('rawToken', signToken);
+    await this.audit(contractId, '添加签署方', '系统', '', `${name} (${email}), 顺序: ${order}`);
     return signer;
   }
 
@@ -94,7 +110,7 @@ export class ContractService {
     height: number,
     placeholder?: string
   ): Promise<ContractField> {
-    return ContractField.create({
+    const field = await ContractField.create({
       contractId,
       signerId,
       type,
@@ -105,10 +121,16 @@ export class ContractService {
       height,
       placeholder
     });
+    await this.audit(contractId, '添加字段', '系统', '', `类型: ${type}, 页码: ${pageNumber}, 签署方: ${signerId || '未分配'}`);
+    return field;
   }
 
   async removeField(fieldId: string): Promise<void> {
-    await ContractField.destroy({ where: { id: fieldId } });
+    const field = await ContractField.findByPk(fieldId);
+    if (!field) throw new Error('字段不存在');
+    const contractId = field.contractId;
+    await field.destroy();
+    await this.audit(contractId, '删除字段', '系统', '', `字段ID: ${fieldId}`);
   }
 
   async updateField(
@@ -136,6 +158,7 @@ export class ContractService {
     if (signers.length === 0) throw new Error('请先添加签署方');
 
     await contract.update({ status: 'pending' });
+    await this.audit(contractId, '发起合同', '系统', '', `状态变为待签署`);
 
     for (const signer of signers) {
       if (signer.order === 1 || signer.order === undefined) {
@@ -145,6 +168,7 @@ export class ContractService {
         await signer.update({ status: 'invited', signToken: hashedToken, invitedAt: now });
         const tempSigner = { ...signer.toJSON(), signToken: rawToken };
         await this.emailService.sendSignInvite(tempSigner as any, contract);
+        await this.audit(contractId, '发送签署邀请', signer.name, signer.email, `发送给 ${signer.name} (${signer.email})`, 'email');
       }
     }
 
@@ -160,6 +184,7 @@ export class ContractService {
     if (signer && (!signer.viewedAt || (signer.status === 'invited'))) {
       await signer.update({ viewedAt: new Date(), status: signer.status === 'invited' ? 'signing' : signer.status });
       signer.viewedAt = signer.viewedAt || new Date();
+      await this.audit(signer.contractId, '查看签署链接', signer.name, signer.email, '', 'sign_link');
     }
     return signer;
   }
@@ -228,6 +253,7 @@ export class ContractService {
     }
 
     await signer.update({ status: 'signed', signedAt: new Date() });
+    await this.audit(contractId, '提交签署', signer.name, signer.email, `签署方 ${signer.name} 完成签署`, 'sign_link');
 
     const freshSigners = await Signer.findAll({
       where: { contractId },
@@ -244,6 +270,7 @@ export class ContractService {
       await nextSigner.update({ status: 'invited', signToken: hashedToken, invitedAt: now });
       const tempSigner = { ...nextSigner.toJSON(), signToken: rawToken };
       await this.emailService.sendSignInvite(tempSigner as any, contract);
+      await this.audit(contractId, '发送签署邀请', nextSigner.name, nextSigner.email, `顺序签署: 发送给 ${nextSigner.name}`, 'email');
       await contract.update({ status: 'signing' });
     } else {
       const allSigned = allSigners.every(s => s.status === 'signed');
@@ -252,7 +279,8 @@ export class ContractService {
         const freshFields = await ContractField.findAll({ where: { contractId } });
         const signedPath = await this.pdfService.mergeSignatures(contract, freshFields, signatures);
         
-        await this.blockchainService.createProof(contract, signedPath, signatures, allSigners);
+        const proof = await this.blockchainService.createProof(contract, signedPath, signatures, allSigners);
+        await this.audit(contractId, '生成存证', '系统', '', `文档哈希: ${proof.documentHash.slice(0, 16)}...`, 'system');
         
         await contract.update({ status: 'completed', signedPath, completedAt: new Date() });
 
@@ -294,6 +322,7 @@ export class ContractService {
     });
 
     await contract.update({ status: 'rejected' });
+    await this.audit(contractId, '拒签', signer.name, signer.email, `原因: ${rejectReason || '未填写'}`, 'sign_link');
 
     if (contract.creator) {
       await this.emailService.sendRejectionNotification(contract, signer, contract.creator.email, contract.creator.name);
@@ -501,12 +530,16 @@ export class ContractService {
         await signer.update({ signToken: hashedToken, status: signer.status === 'pending' ? 'invited' : signer.status, invitedAt: signer.invitedAt || new Date() });
         (signer as any).signToken = rawToken;
       }
-      return this.emailService.sendSignInvite(signer as any, contract);
+      await this.emailService.sendSignInvite(signer as any, contract);
+      await this.audit(contractId, '重发签署邀请', '发起方', '', `发送给 ${signer.name} (${signer.email})`, 'web');
+      return true;
     } else if (type === 'completed') {
       if (contract.status !== 'completed') {
         throw new Error('合同尚未完成签署，无法发送完成通知');
       }
-      return this.emailService.sendCompletedNotification(contract, signer.email, signer.name);
+      await this.emailService.sendCompletedNotification(contract, signer.email, signer.name);
+      await this.audit(contractId, '补发完成通知', '发起方', '', `发送给 ${signer.name} (${signer.email})`, 'web');
+      return true;
     }
     return false;
   }

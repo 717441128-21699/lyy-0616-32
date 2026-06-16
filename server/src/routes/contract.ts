@@ -33,7 +33,9 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
       file.name,
       expireAt ? new Date(expireAt) : undefined,
       isRenewalEnabled === 'true',
-      renewalDays ? parseInt(renewalDays) : undefined
+      renewalDays ? parseInt(renewalDays) : undefined,
+      req.user.email,
+      req.user.name
     );
 
     res.json({ success: true, contract });
@@ -111,6 +113,7 @@ router.get('/:id/signed', authMiddleware, async (req: AuthRequest, res) => {
     
     const pdfService = contractService.getPdfService();
     const buffer = pdfService.readPdf(contract.signedPath);
+    await contractService.audit(req.params.id, '下载已签署PDF', req.user?.name || '', req.user?.email || '', '', 'web');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="signed_${contract.id}.pdf"`);
     res.send(buffer);
@@ -223,6 +226,11 @@ router.get('/:id/proofs', authMiddleware, async (req, res) => {
 router.post('/:id/notify', authMiddleware, async (req: AuthRequest, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: '未登录' });
+    const contract = await contractService.getContractDetail(req.params.id);
+    if (!contract) return res.status(404).json({ error: '合同不存在' });
+    if (contract.creatorId !== req.user.id) {
+      return res.status(403).json({ error: '仅合同发起方可操作' });
+    }
     const { signerId, type } = req.body;
     if (!signerId || !type) {
       return res.status(400).json({ error: '请提供signerId和通知类型type' });
@@ -231,6 +239,21 @@ router.post('/:id/notify', authMiddleware, async (req: AuthRequest, res) => {
     res.json({ success });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
+  }
+});
+
+router.get('/:id/audit-logs', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: '未登录' });
+    const contract = await contractService.getContractDetail(req.params.id);
+    if (!contract) return res.status(404).json({ error: '合同不存在' });
+    if (contract.creatorId !== req.user.id) {
+      return res.status(403).json({ error: '仅合同发起方可查看审计日志' });
+    }
+    const logs = await contractService.getAuditLogs(req.params.id);
+    res.json({ success: true, logs });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 });
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 
 export default function Login() {
@@ -9,6 +9,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuthStore();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -16,7 +17,8 @@ export default function Login() {
     setLoading(true);
     try {
       await login(email, password);
-      navigate('/contracts');
+      const redirect = searchParams.get('redirect') || '/contracts';
+      navigate(redirect);
     } catch (err: any) {
       setError(err.response?.data?.error || '登录失败');
     } finally {

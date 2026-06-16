@@ -4,3 +4,4 @@ export { Signer, SignerStatus } from './Signer';
 export { ContractField, FieldType } from './ContractField';
 export { Signature } from './Signature';
 export { BlockchainProof } from './BlockchainProof';
+export { AuditLog } from './AuditLog';

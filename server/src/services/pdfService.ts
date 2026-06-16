@@ -66,6 +66,20 @@ export class PdfService {
       }
     });
 
+    const truncateText = (text: string, font: any, maxWidth: number, fontSize: number): string => {
+      try {
+        let width = font.widthOfTextAtSize(text, fontSize);
+        if (width <= maxWidth) return text;
+        let truncated = text;
+        while (truncated.length > 0 && font.widthOfTextAtSize(truncated + '...', fontSize) > maxWidth) {
+          truncated = truncated.slice(0, -1);
+        }
+        return truncated + '...';
+      } catch {
+        return text.slice(0, Math.floor(maxWidth / fontSize));
+      }
+    };
+
     for (const field of fields) {
       const page = pdfDoc.getPage(field.pageNumber - 1);
       if (!page) continue;
@@ -93,21 +107,55 @@ export class PdfService {
           }
         }
       } else if (field.type === 'date' && field.value) {
-        page.drawText(field.value, {
-          x: field.x,
-          y: field.y + field.height / 2 - 6,
-          size: 12,
-          font: cjkFont,
-          color: rgb(0, 0, 0)
-        });
+        try {
+          const text = truncateText(field.value, cjkFont, field.width, 12);
+          page.drawText(text, {
+            x: field.x,
+            y: field.y + field.height / 2 - 6,
+            size: 12,
+            font: cjkFont,
+            color: rgb(0, 0, 0)
+          });
+        } catch (e) {
+          console.error('绘制日期字段失败:', e);
+          try {
+            page.drawText(field.value, {
+              x: field.x,
+              y: field.y + field.height / 2 - 6,
+              size: 12,
+              font: await pdfDoc.embedFont(StandardFonts.Helvetica),
+              color: rgb(0, 0, 0)
+            });
+          } catch (e2) {
+            console.error('日期字段降级绘制也失败:', e2);
+          }
+        }
       } else if (field.type === 'text' && field.value) {
-        page.drawText(field.value, {
-          x: field.x,
-          y: field.y + field.height / 2 - 6,
-          size: 11,
-          font: cjkFont,
-          color: rgb(0, 0, 0)
-        });
+        try {
+          const text = truncateText(field.value, cjkFont, field.width, 11);
+          page.drawText(text, {
+            x: field.x,
+            y: field.y + field.height / 2 - 6,
+            size: 11,
+            font: cjkFont,
+            color: rgb(0, 0, 0)
+          });
+        } catch (e) {
+          console.error('绘制文本字段失败:', e);
+          try {
+            const fallbackFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+            const asciiOnly = field.value.replace(/[^\x00-\x7F]/g, '?');
+            page.drawText(asciiOnly, {
+              x: field.x,
+              y: field.y + field.height / 2 - 6,
+              size: 11,
+              font: fallbackFont,
+              color: rgb(0, 0, 0)
+            });
+          } catch (e2) {
+            console.error('文本字段降级绘制也失败:', e2);
+          }
+        }
       }
     }
 
