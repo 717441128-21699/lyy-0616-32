@@ -45,10 +45,14 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
 router.get('/', authMiddleware, async (req: AuthRequest, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: '未登录' });
-    const { status } = req.query;
+    const { status, search, signerEmail, completedFrom, completedTo } = req.query;
     const contracts = await contractService.getUserContracts(
       req.user.id,
-      status as string
+      status as string,
+      search as string,
+      signerEmail as string,
+      completedFrom as string,
+      completedTo as string
     );
     res.json({ success: true, contracts });
   } catch (error: any) {
@@ -213,6 +217,20 @@ router.get('/:id/proofs', authMiddleware, async (req, res) => {
     res.json({ success: true, proofs });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/:id/notify', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: '未登录' });
+    const { signerId, type } = req.body;
+    if (!signerId || !type) {
+      return res.status(400).json({ error: '请提供signerId和通知类型type' });
+    }
+    const success = await contractService.resendNotification(req.params.id, signerId, type);
+    res.json({ success });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
   }
 });
 

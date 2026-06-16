@@ -45,10 +45,13 @@ export class PdfService {
     let cjkFont: any;
     try {
       const fontPath = path.join(process.cwd(), 'fonts', 'SimHei.ttf');
+      console.log('[PDF字体] 查找字体路径:', fontPath, '存在:', fs.existsSync(fontPath));
       if (fs.existsSync(fontPath)) {
         const fontBytes = fs.readFileSync(fontPath);
         cjkFont = await pdfDoc.embedFont(fontBytes);
+        console.log('[PDF字体] 已嵌入中文字体 SimHei，字体大小:', fontBytes.length, '字节');
       } else {
+        console.warn('[PDF字体] 字体文件不存在，使用默认 Helvetica');
         cjkFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
       }
     } catch (e) {

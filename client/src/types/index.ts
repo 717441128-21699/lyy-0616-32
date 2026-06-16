@@ -38,6 +38,8 @@ export interface Signer {
   name: string;
   order: number;
   status: SignerStatus;
+  invitedAt?: string;
+  viewedAt?: string;
   signedAt?: string;
   rejectedAt?: string;
   rejectReason?: string;

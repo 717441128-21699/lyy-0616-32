@@ -13,6 +13,8 @@ export class Signer extends Model {
   public order!: number;
   public status!: SignerStatus;
   public signToken!: string;
+  public invitedAt?: Date;
+  public viewedAt?: Date;
   public signedAt?: Date;
   public rejectedAt?: Date;
   public rejectReason?: string;
@@ -59,6 +61,14 @@ Signer.init({
     type: DataTypes.STRING(255),
     allowNull: false,
     unique: true
+  },
+  invitedAt: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  viewedAt: {
+    type: DataTypes.DATE,
+    allowNull: true
   },
   signedAt: {
     type: DataTypes.DATE,

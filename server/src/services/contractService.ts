@@ -141,7 +141,8 @@ export class ContractService {
       if (signer.order === 1 || signer.order === undefined) {
         const rawToken = generateSignToken(signer.id, contractId);
         const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
-        await signer.update({ status: 'invited', signToken: hashedToken });
+        const now = new Date();
+        await signer.update({ status: 'invited', signToken: hashedToken, invitedAt: now });
         const tempSigner = { ...signer.toJSON(), signToken: rawToken };
         await this.emailService.sendSignInvite(tempSigner as any, contract);
       }
@@ -152,10 +153,15 @@ export class ContractService {
 
   async getSignerByToken(token: string): Promise<Signer | null> {
     const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
-    return Signer.findOne({
+    const signer = await Signer.findOne({
       where: { signToken: hashedToken },
       include: [{ model: Contract, as: 'contract' }]
     });
+    if (signer && (!signer.viewedAt || (signer.status === 'invited'))) {
+      await signer.update({ viewedAt: new Date(), status: signer.status === 'invited' ? 'signing' : signer.status });
+      signer.viewedAt = signer.viewedAt || new Date();
+    }
+    return signer;
   }
 
   async signContract(
@@ -234,7 +240,8 @@ export class ContractService {
     if (nextSigner) {
       const rawToken = generateSignToken(nextSigner.id, contractId);
       const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
-      await nextSigner.update({ status: 'invited', signToken: hashedToken });
+      const now = new Date();
+      await nextSigner.update({ status: 'invited', signToken: hashedToken, invitedAt: now });
       const tempSigner = { ...nextSigner.toJSON(), signToken: rawToken };
       await this.emailService.sendSignInvite(tempSigner as any, contract);
       await contract.update({ status: 'signing' });
@@ -299,14 +306,52 @@ export class ContractService {
     return contract.reload();
   }
 
-  async getUserContracts(userId: string, status?: string): Promise<Contract[]> {
-    const where: any = { creatorId: userId };
-    if (status && status !== 'all') where.status = status;
+  async getUserContracts(
+    userId: string,
+    status?: string,
+    search?: string,
+    signerEmail?: string,
+    completedFrom?: string,
+    completedTo?: string
+  ): Promise<Contract[]> {
+    const where: any = {
+      [Op.or]: [
+        { creatorId: userId },
+        { '$signers.email$': (await User.findByPk(userId))?.email || '___no_match___' }
+      ]
+    };
+    const include: any[] = [{ model: Signer, as: 'signers' }];
+
+    if (status && status !== 'all') {
+      where.status = status;
+    }
+    if (search) {
+      where.title = { [Op.like]: `%${search}%` };
+    }
+    if (signerEmail) {
+      include[0].where = { email: { [Op.like]: `%${signerEmail}%` } };
+    }
+    if (completedFrom || completedTo) {
+      where.completedAt = {} as any;
+      if (completedFrom) {
+        where.completedAt[Op.gte] = new Date(completedFrom);
+      }
+      if (completedTo) {
+        const toDate = new Date(completedTo);
+        toDate.setHours(23, 59, 59, 999);
+        where.completedAt[Op.lte] = toDate;
+      }
+    }
+    // 如果没有completedAt条件删除该属性，避免影响其他查询
+    if (where.completedAt && Object.keys(where.completedAt).length === 0) {
+      delete where.completedAt;
+    }
 
     return Contract.findAll({
       where,
-      include: [{ model: Signer, as: 'signers' }],
-      order: [['createdAt', 'DESC']]
+      include,
+      order: [['createdAt', 'DESC']],
+      subQuery: false
     });
   }
 
@@ -433,6 +478,37 @@ export class ContractService {
 
   getPdfService(): PdfService {
     return this.pdfService;
+  }
+
+  async resendNotification(contractId: string, signerId: string, type: 'invite' | 'completed'): Promise<boolean> {
+    const contract = await Contract.findByPk(contractId, {
+      include: [
+        { model: Signer, as: 'signers' },
+        { model: User, as: 'creator' }
+      ]
+    });
+    if (!contract) throw new Error('合同不存在');
+    const signer = contract.signers?.find((s: any) => s.id === signerId) as Signer | undefined;
+    if (!signer) throw new Error('签署方不存在');
+
+    if (type === 'invite') {
+      if (signer.status === 'signed' || signer.status === 'rejected') {
+        throw new Error('该签署方已完成签署，无法重新发送邀请');
+      }
+      if (!signer.signToken) {
+        const rawToken = generateSignToken(signer.id, contractId);
+        const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+        await signer.update({ signToken: hashedToken, status: signer.status === 'pending' ? 'invited' : signer.status, invitedAt: signer.invitedAt || new Date() });
+        (signer as any).signToken = rawToken;
+      }
+      return this.emailService.sendSignInvite(signer as any, contract);
+    } else if (type === 'completed') {
+      if (contract.status !== 'completed') {
+        throw new Error('合同尚未完成签署，无法发送完成通知');
+      }
+      return this.emailService.sendCompletedNotification(contract, signer.email, signer.name);
+    }
+    return false;
   }
 
   getBlockchainService(): BlockchainService {

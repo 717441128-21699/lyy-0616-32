@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { Contract } from '../types';
 
@@ -16,7 +16,16 @@ const statusLabels: Record<string, { label: string; color: string }> = {
 export default function Contracts() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [status, setStatus] = useState(searchParams.get('status') || 'all');
+  const [search, setSearch] = useState(searchParams.get('search') || '');
+  const [signerEmail, setSignerEmail] = useState(searchParams.get('signerEmail') || '');
+  const [completedFrom, setCompletedFrom] = useState(searchParams.get('completedFrom') || '');
+  const [completedTo, setCompletedTo] = useState(searchParams.get('completedTo') || '');
+  const [filterOpen, setFilterOpen] = useState(
+    !!searchParams.get('search') || !!searchParams.get('signerEmail') ||
+    !!searchParams.get('completedFrom') || !!searchParams.get('completedTo')
+  );
   const [showNewModal, setShowNewModal] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
@@ -26,10 +35,26 @@ export default function Contracts() {
   const [newRenewalDays, setNewRenewalDays] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const syncParams = (patch: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams);
+    Object.entries(patch).forEach(([k, v]) => {
+      if (v === null || v === '') next.delete(k);
+      else next.set(k, v);
+    });
+    setSearchParams(next, { replace: false });
+  };
+
   const loadContracts = async () => {
     setLoading(true);
     try {
-      const res = await api.get(`/contracts${status !== 'all' ? `?status=${status}` : ''}`);
+      const params = new URLSearchParams();
+      if (status && status !== 'all') params.append('status', status);
+      if (search) params.append('search', search);
+      if (signerEmail) params.append('signerEmail', signerEmail);
+      if (completedFrom) params.append('completedFrom', completedFrom);
+      if (completedTo) params.append('completedTo', completedTo);
+      const qs = params.toString();
+      const res = await api.get(`/contracts${qs ? `?${qs}` : ''}`);
       setContracts(res.data.contracts);
     } finally {
       setLoading(false);
@@ -38,7 +63,27 @@ export default function Contracts() {
 
   useEffect(() => {
     loadContracts();
-  }, [status]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, search, signerEmail, completedFrom, completedTo]);
+
+  useEffect(() => {
+    syncParams({
+      status: status === 'all' ? null : status,
+      search: search || null,
+      signerEmail: signerEmail || null,
+      completedFrom: completedFrom || null,
+      completedTo: completedTo || null
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, search, signerEmail, completedFrom, completedTo]);
+
+  const clearFilters = () => {
+    setStatus('all');
+    setSearch('');
+    setSignerEmail('');
+    setCompletedFrom('');
+    setCompletedTo('');
+  };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,18 +138,81 @@ export default function Contracts() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-        <div className="flex items-center space-x-2 p-4 border-b border-gray-100">
-          {['all', 'draft', 'pending', 'signing', 'completed', 'rejected', 'archived'].map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatus(s)}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                status === s ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              {s === 'all' ? '全部' : statusLabels[s]?.label || s}
-            </button>
-          ))}
+        <div className="p-4 border-b border-gray-100 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {['all', 'draft', 'pending', 'signing', 'completed', 'rejected', 'archived'].map((s) => (
+              <button
+                key={s}
+                onClick={() => setStatus(s)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  status === s ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                {s === 'all' ? '全部' : statusLabels[s]?.label || s}
+              </button>
+            ))}
+            <div className="flex-1" />
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="搜索合同标题..."
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none w-56"
+              />
+              <button
+                onClick={() => setFilterOpen(!filterOpen)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1 ${
+                  filterOpen ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                </svg>
+                高级筛选
+              </button>
+              {(search || signerEmail || completedFrom || completedTo || status !== 'all') && (
+                <button
+                  onClick={clearFilters}
+                  className="px-3 py-1.5 rounded-md text-sm text-gray-600 hover:bg-gray-100 transition-colors"
+                >
+                  清除
+                </button>
+              )}
+            </div>
+          </div>
+          {filterOpen && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-gray-100">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">签署方邮箱</label>
+                <input
+                  type="text"
+                  value={signerEmail}
+                  onChange={(e) => setSignerEmail(e.target.value)}
+                  placeholder="输入签署方邮箱..."
+                  className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">完成时间(起)</label>
+                <input
+                  type="date"
+                  value={completedFrom}
+                  onChange={(e) => setCompletedFrom(e.target.value)}
+                  className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">完成时间(止)</label>
+                <input
+                  type="date"
+                  value={completedTo}
+                  onChange={(e) => setCompletedTo(e.target.value)}
+                  className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {loading ? (

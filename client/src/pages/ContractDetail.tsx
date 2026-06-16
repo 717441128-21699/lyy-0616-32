@@ -197,13 +197,13 @@ export default function ContractDetail() {
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">签署流程</h2>
-            <div className="space-y-3">
+            <div className="space-y-4">
               {contract.signers
                 ?.sort((a, b) => a.order - b.order)
                 .map((signer, idx) => (
-                  <div key={signer.id} className="relative">
+                  <div key={signer.id} className="relative pb-2">
                     {idx > 0 && (
-                      <div className="absolute left-4 -top-3 w-0.5 h-3 bg-gray-200"></div>
+                      <div className="absolute left-4 -top-2 w-0.5 h-2 bg-gray-200"></div>
                     )}
                     <div className="flex items-start space-x-3">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0 ${
@@ -217,18 +217,61 @@ export default function ContractDetail() {
                          signer.order}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <p className="font-medium text-gray-900 truncate">{signer.name}</p>
-                          <span className={`px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 ${signerStatusLabels[signer.status]?.color}`}>
-                            {signerStatusLabels[signer.status]?.label}
-                          </span>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <p className="font-medium text-gray-900 truncate">{signer.name}</p>
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 ${signerStatusLabels[signer.status]?.color}`}>
+                              {signerStatusLabels[signer.status]?.label}
+                            </span>
+                          </div>
+                          {contract.status === 'completed' && (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await api.post(`/contracts/${id}/notify`, { signerId: signer.id, type: 'completed' });
+                                  alert('完成通知已发送');
+                                } catch (err: any) {
+                                  alert(err.response?.data?.error || '发送失败');
+                                }
+                              }}
+                              className="flex-shrink-0 text-xs px-2 py-1 text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded transition-colors"
+                              title="补发完成通知邮件"
+                            >
+                              📧 通知
+                            </button>
+                          )}
+                          {['pending', 'invited', 'signing'].includes(signer.status) && contract.status !== 'completed' && contract.status !== 'expired' && contract.status !== 'rejected' && (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await api.post(`/contracts/${id}/notify`, { signerId: signer.id, type: 'invite' });
+                                  alert('邀请邮件已重新发送');
+                                } catch (err: any) {
+                                  alert(err.response?.data?.error || '发送失败');
+                                }
+                              }}
+                              className="flex-shrink-0 text-xs px-2 py-1 text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded transition-colors"
+                              title="重新发送签署邀请"
+                            >
+                              📧 重发
+                            </button>
+                          )}
                         </div>
                         <p className="text-sm text-gray-500 truncate">{signer.email}</p>
-                        {signer.signedAt && (
-                          <p className="text-xs text-green-600 mt-0.5">
-                            {new Date(signer.signedAt).toLocaleString()}
-                          </p>
-                        )}
+                        <div className="mt-1 space-y-0.5 text-xs">
+                          {signer.invitedAt && (
+                            <p className="text-yellow-700">📨 收到邀请: {new Date(signer.invitedAt).toLocaleString()}</p>
+                          )}
+                          {signer.viewedAt && (
+                            <p className="text-blue-700">👁 打开链接: {new Date(signer.viewedAt).toLocaleString()}</p>
+                          )}
+                          {signer.signedAt && (
+                            <p className="text-green-700">✅ 提交签署: {new Date(signer.signedAt).toLocaleString()}</p>
+                          )}
+                          {signer.rejectedAt && (
+                            <p className="text-red-700">❌ 拒签: {new Date(signer.rejectedAt).toLocaleString()}</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -237,26 +280,113 @@ export default function ContractDetail() {
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">签名字段统计</h2>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">签名框</span>
-                <span className="font-medium">{contract.fields?.filter(f => f.type === 'signature').length || 0} 个</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">日期框</span>
-                <span className="font-medium">{contract.fields?.filter(f => f.type === 'date').length || 0} 个</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">文本填写框</span>
-                <span className="font-medium">{contract.fields?.filter(f => f.type === 'text').length || 0} 个</span>
-              </div>
-              <div className="flex justify-between pt-2 border-t">
-                <span className="text-gray-500">已填写</span>
-                <span className="font-medium text-green-600">
-                  {contract.fields?.filter(f => f.filledAt).length || 0} / {contract.fields?.length || 0}
-                </span>
-              </div>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">签署时间线</h2>
+            <div className="relative space-y-4 pl-4">
+              <div className="absolute left-[7px] top-1 bottom-1 w-px bg-gray-200"></div>
+              {(() => {
+                interface TimelineEvent {
+                  time: Date;
+                  icon: string;
+                  color: string;
+                  title: string;
+                  desc?: string;
+                }
+                const events: TimelineEvent[] = [];
+                events.push({
+                  time: new Date(contract.createdAt),
+                  icon: '📝',
+                  color: 'bg-gray-400',
+                  title: '合同创建',
+                  desc: contract.creator ? `由 ${contract.creator.name} 创建` : undefined
+                });
+                contract.signers?.forEach(s => {
+                  if (s.invitedAt) {
+                    events.push({
+                      time: new Date(s.invitedAt),
+                      icon: '📨',
+                      color: 'bg-yellow-400',
+                      title: `${s.name} 收到签署邀请`,
+                      desc: s.email
+                    });
+                  }
+                });
+                contract.signers?.forEach(s => {
+                  if (s.viewedAt) {
+                    events.push({
+                      time: new Date(s.viewedAt),
+                      icon: '👁',
+                      color: 'bg-blue-400',
+                      title: `${s.name} 打开签署链接`,
+                      desc: s.email
+                    });
+                  }
+                });
+                contract.signers?.forEach(s => {
+                  if (s.rejectedAt) {
+                    events.push({
+                      time: new Date(s.rejectedAt),
+                      icon: '❌',
+                      color: 'bg-red-500',
+                      title: `${s.name} 拒签`,
+                      desc: s.rejectReason || '未填写拒签原因'
+                    });
+                  }
+                });
+                contract.signers?.forEach(s => {
+                  if (s.signedAt) {
+                    events.push({
+                      time: new Date(s.signedAt),
+                      icon: '✍️',
+                      color: 'bg-green-500',
+                      title: `${s.name} 完成签署`,
+                      desc: s.email
+                    });
+                  }
+                });
+                if (contract.status === 'completed' && contract.completedAt) {
+                  events.push({
+                    time: new Date(contract.completedAt),
+                    icon: '🎉',
+                    color: 'bg-green-600',
+                    title: '所有签署方完成签署',
+                    desc: '合同签署流程结束'
+                  });
+                }
+                if (contract.status === 'completed' && proofs.length > 0 && proofs[0].timestamp) {
+                  events.push({
+                    time: new Date(proofs[0].timestamp),
+                    icon: '🔗',
+                    color: 'bg-blue-600',
+                    title: '生成区块链存证',
+                    desc: `文档哈希: ${proofs[0].documentHash.slice(0, 16)}...`
+                  });
+                }
+                if (contract.status === 'expired' && contract.expireAt) {
+                  events.push({
+                    time: new Date(contract.expireAt),
+                    icon: '⏳',
+                    color: 'bg-gray-500',
+                    title: '合同过期作废',
+                    desc: '签署期限已过'
+                  });
+                }
+                events.sort((a, b) => a.time.getTime() - b.time.getTime());
+                return events.map((e, i) => (
+                  <div key={i} className="relative">
+                    <div className={`absolute -left-[21px] top-1 w-3.5 h-3.5 rounded-full border-2 border-white ${e.color} ring-1 ring-gray-200`}></div>
+                    <div>
+                      <div className="flex items-baseline gap-2">
+                        <span className="mr-1">{e.icon}</span>
+                        <span className="font-medium text-gray-900 text-sm">{e.title}</span>
+                        <span className="text-xs text-gray-400">{e.time.toLocaleString()}</span>
+                      </div>
+                      {e.desc && (
+                        <p className="text-xs text-gray-500 mt-0.5 ml-5">{e.desc}</p>
+                      )}
+                    </div>
+                  </div>
+                ));
+              })()}
             </div>
           </div>
         </div>
