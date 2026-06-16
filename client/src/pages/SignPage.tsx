@@ -23,6 +23,11 @@ interface SignInfo {
   };
   myFields: ContractField[];
   allSigners: Array<{ id: string; name: string; status: SignerStatus; order: number; signedAt?: string }>;
+  pdfInfo: {
+    pageCount: number;
+    pages: Array<{ width: number; height: number }>;
+  };
+  expired?: boolean;
 }
 
 export default function SignPage() {
@@ -30,6 +35,8 @@ export default function SignPage() {
   const [signInfo, setSignInfo] = useState<SignInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [isExpired, setIsExpired] = useState(false);
+  const [expiredInfo, setExpiredInfo] = useState<any>(null);
   const [pageSize, setPageSize] = useState({ width: 595, height: 842 });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
@@ -58,30 +65,31 @@ export default function SignPage() {
       const res = await api.get(`/sign/${token}`);
       setSignInfo(res.data);
 
-      const pdfDoc = document.createElement('iframe');
-      pdfDoc.src = `/api/sign/${token}/template`;
-      pdfDoc.style.display = 'none';
-      document.body.appendChild(pdfDoc);
-
-      setTimeout(() => {
-        setPageSize({ width: 595, height: 842 });
-        setPageCount(1);
-        const myFields = res.data.myFields as ContractField[];
-        if (myFields.length > 0) {
-          setCurrentPage(myFields[0].pageNumber);
-          const initial: Record<string, { value?: string; imageData?: string }> = {};
-          myFields.forEach(f => {
-            if (f.type === 'date') {
-              initial[f.id] = { value: new Date().toLocaleDateString('zh-CN') };
-            } else if (f.type === 'text') {
-              initial[f.id] = { value: '' };
-            }
-          });
-          setFieldValues(initial);
+      if (res.data.pdfInfo) {
+        setPageCount(res.data.pdfInfo.pageCount);
+        if (res.data.pdfInfo.pages && res.data.pdfInfo.pages.length > 0) {
+          setPageSize(res.data.pdfInfo.pages[0]);
         }
-        document.body.removeChild(pdfDoc);
-      }, 500);
+      }
+
+      const myFields = res.data.myFields as ContractField[];
+      if (myFields.length > 0) {
+        setCurrentPage(myFields[0].pageNumber);
+        const initial: Record<string, { value?: string; imageData?: string }> = {};
+        myFields.forEach(f => {
+          if (f.type === 'date') {
+            initial[f.id] = { value: new Date().toLocaleDateString('zh-CN') };
+          } else if (f.type === 'text') {
+            initial[f.id] = { value: '' };
+          }
+        });
+        setFieldValues(initial);
+      }
     } catch (err: any) {
+      if (err.response?.data?.expired) {
+        setIsExpired(true);
+        setExpiredInfo(err.response.data);
+      }
       setError(err.response?.data?.error || '加载失败');
     } finally {
       setLoading(false);
@@ -95,6 +103,13 @@ export default function SignPage() {
       setShowSigModal(true);
       setSigMode('draw');
       setTypedSignature(signInfo.signer.name);
+    }
+  };
+
+  const jumpToFieldPage = (field: ContractField) => {
+    setCurrentPage(field.pageNumber);
+    if (field.type === 'signature') {
+      handleFieldClick(field);
     }
   };
 
@@ -161,6 +176,7 @@ export default function SignPage() {
     const missing = myFields.filter(f => {
       if (f.type === 'signature' && !fieldValues[f.id]?.imageData) return true;
       if (f.type === 'text' && !fieldValues[f.id]?.value?.trim()) return true;
+      if (f.type === 'date' && !fieldValues[f.id]?.value?.trim()) return true;
       return false;
     });
     if (missing.length > 0) {
@@ -179,7 +195,13 @@ export default function SignPage() {
       await api.post(`/sign/${token}/sign`, { fieldValues: values });
       setCompleted(true);
     } catch (err: any) {
-      alert(err.response?.data?.error || '签署失败');
+      const errMsg = err.response?.data?.error || '签署失败';
+      if (errMsg.includes('过期')) {
+        setIsExpired(true);
+        setError(errMsg);
+      } else {
+        alert(errMsg);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -206,7 +228,28 @@ export default function SignPage() {
     return <div className="min-h-screen flex items-center justify-center text-gray-500">加载中...</div>;
   }
 
-  if (error) {
+  if (isExpired) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="bg-white rounded-2xl shadow-xl p-10 max-w-md text-center">
+          <div className="text-7xl mb-6">⏰</div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">合同已过期</h2>
+          <p className="text-gray-600 mb-4">{error || '该合同已超过签署期限，系统已自动作废。'}</p>
+          {expiredInfo?.contract && (
+            <div className="text-sm text-gray-500 mb-6">
+              <p>合同名称: <span className="font-medium text-gray-700">{expiredInfo.contract.title}</span></p>
+              {expiredInfo.contract.expireAt && (
+                <p>过期时间: <span className="font-medium text-gray-700">{new Date(expiredInfo.contract.expireAt).toLocaleString()}</span></p>
+              )}
+            </div>
+          )}
+          <a href="/login" className="text-blue-600 hover:underline">返回登录</a>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !isExpired) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="bg-white rounded-xl shadow-lg p-8 max-w-md text-center">
@@ -225,7 +268,7 @@ export default function SignPage() {
   const currentFields = myFields.filter(f => f.pageNumber === currentPage);
   const allFieldsSigned = myFields.every(f => {
     if (f.type === 'signature') return !!fieldValues[f.id]?.imageData;
-    if (f.type === 'text') return !!fieldValues[f.id]?.value?.trim();
+    if (f.type === 'text' || f.type === 'date') return !!fieldValues[f.id]?.value?.trim();
     return true;
   });
   const scaledWidth = pageSize.width * PDF_SCALE;
@@ -242,14 +285,22 @@ export default function SignPage() {
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
             {wasRejected ? '已拒签' : '签署成功'}
           </h2>
-          <p className="text-gray-600 mb-8">
+          <p className="text-gray-600 mb-4">
             {wasRejected
               ? '您已拒签该合同，合同发起方将收到通知。'
               : '您已成功完成签署，我们会通知其他签署方继续签署。'}
           </p>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 mb-6">
             合同名称: <span className="font-medium text-gray-700">{signInfo.contract.title}</span>
           </p>
+          {!wasRejected && signInfo.contract.status === 'completed' && (
+            <a
+              href={`/api/sign/${token}/signed`}
+              className="inline-block px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors"
+            >
+              下载已签署PDF
+            </a>
+          )}
         </div>
       </div>
     );
@@ -446,10 +497,7 @@ export default function SignPage() {
                   return (
                     <div
                       key={f.id}
-                      onClick={() => {
-                        setCurrentPage(f.pageNumber);
-                        if (f.type === 'signature') handleFieldClick(f);
-                      }}
+                      onClick={() => jumpToFieldPage(f)}
                       className={`flex items-center justify-between p-2 rounded-md text-sm cursor-pointer ${
                         isFilled ? 'bg-green-50' : 'bg-gray-50 hover:bg-gray-100'
                       }`}
@@ -471,14 +519,33 @@ export default function SignPage() {
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               {signInfo.signer.status === 'signed' ? (
-                <div className="text-center py-4">
+                <div className="text-center py-4 space-y-4">
                   <div className="text-4xl mb-2">✅</div>
                   <p className="text-green-600 font-medium">您已完成签署</p>
+                  {signInfo.contract.status === 'completed' && (
+                    <a
+                      href={`/api/sign/${token}/signed`}
+                      className="inline-block w-full py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors"
+                    >
+                      下载已签署PDF
+                    </a>
+                  )}
                 </div>
               ) : signInfo.signer.status === 'rejected' ? (
                 <div className="text-center py-4">
                   <div className="text-4xl mb-2">❌</div>
                   <p className="text-red-600 font-medium">您已拒签此合同</p>
+                </div>
+              ) : signInfo.contract.status === 'completed' ? (
+                <div className="text-center py-4 space-y-4">
+                  <div className="text-4xl mb-2">✅</div>
+                  <p className="text-green-600 font-medium">所有签署方已完成签署</p>
+                  <a
+                    href={`/api/sign/${token}/signed`}
+                    className="inline-block w-full py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors"
+                  >
+                    下载已签署PDF
+                  </a>
                 </div>
               ) : (
                 <div className="space-y-3">

@@ -177,9 +177,22 @@ export class ContractService {
       throw new Error('当前状态不允许签署');
     }
 
+    if (contract.expireAt && new Date() > contract.expireAt) {
+      throw new Error('合同已过期，无法继续签署');
+    }
+
+    const myFields = await ContractField.findAll({
+      where: { contractId, signerId: signerId }
+    });
+    const myFieldIds = new Set(myFields.map(f => f.id));
+
     for (const fv of fieldValues) {
       const field = await ContractField.findByPk(fv.fieldId);
       if (!field) continue;
+
+      if (field.signerId && field.signerId !== signerId) {
+        throw new Error(`字段不属于当前签署方: ${field.type}`);
+      }
 
       if (field.type === 'signature' && fv.imageData) {
         const sigHash = crypto.createHash('sha256').update(fv.imageData + Date.now()).digest('hex');
@@ -192,14 +205,29 @@ export class ContractService {
           signatureHash: sigHash
         });
         await field.update({ filledAt: new Date() });
-      } else if (fv.value) {
+      } else if (fv.value !== undefined && fv.value !== null) {
         await field.update({ value: fv.value, filledAt: new Date() });
       }
     }
 
+    const unfilledRequired = myFields.filter(f => {
+      const filled = fieldValues.find((fv: any) => fv.fieldId === f.id);
+      if (!filled) return true;
+      if (f.type === 'signature' && !filled.imageData) return true;
+      if ((f.type === 'text' || f.type === 'date') && !filled.value?.trim()) return true;
+      return false;
+    });
+    if (unfilledRequired.length > 0) {
+      throw new Error(`还有 ${unfilledRequired.length} 个必填字段未填写`);
+    }
+
     await signer.update({ status: 'signed', signedAt: new Date() });
 
-    const allSigners = contract.signers || [];
+    const freshSigners = await Signer.findAll({
+      where: { contractId },
+      order: [['order', 'ASC']]
+    });
+    const allSigners = freshSigners;
     const currentOrder = signer.order;
     const nextSigner = allSigners.find(s => s.order === currentOrder + 1);
 
@@ -214,8 +242,8 @@ export class ContractService {
       const allSigned = allSigners.every(s => s.status === 'signed');
       if (allSigned) {
         const signatures = await Signature.findAll({ where: { contractId } });
-        const fields = contract.fields || [];
-        const signedPath = await this.pdfService.mergeSignatures(contract, fields, signatures);
+        const freshFields = await ContractField.findAll({ where: { contractId } });
+        const signedPath = await this.pdfService.mergeSignatures(contract, freshFields, signatures);
         
         await this.blockchainService.createProof(contract, signedPath, signatures, allSigners);
         
@@ -230,7 +258,14 @@ export class ContractService {
       }
     }
 
-    return contract.reload();
+    return Contract.findByPk(contractId, {
+      include: [
+        { model: Signer, as: 'signers', order: [['order', 'ASC']] },
+        { model: ContractField, as: 'fields' },
+        { model: Signature, as: 'signatures' },
+        { model: User, as: 'creator' }
+      ]
+    }) as Promise<Contract>;
   }
 
   async rejectContract(signerId: string, contractId: string, rejectReason: string): Promise<Contract> {

@@ -92,10 +92,19 @@ router.get('/:id/template', async (req, res) => {
   }
 });
 
-router.get('/:id/signed', async (req, res) => {
+router.get('/:id/signed', authMiddleware, async (req: AuthRequest, res) => {
   try {
+    if (!req.user) return res.status(401).json({ error: '未登录' });
     const contract = await contractService.getContractDetail(req.params.id);
     if (!contract || !contract.signedPath) return res.status(404).json({ error: '文件不存在' });
+    
+    const isCreator = contract.creatorId === req.user.id;
+    const isSigner = contract.signers?.some(s => s.email === req.user?.email) || false;
+    
+    if (!isCreator && !isSigner) {
+      return res.status(403).json({ error: '您没有权限下载此文件' });
+    }
+    
     const pdfService = contractService.getPdfService();
     const buffer = pdfService.readPdf(contract.signedPath);
     res.setHeader('Content-Type', 'application/pdf');

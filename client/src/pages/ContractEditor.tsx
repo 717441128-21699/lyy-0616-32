@@ -87,14 +87,14 @@ export default function ContractEditor() {
 
     try {
       const res = await api.post(`/contracts/${id}/fields`, {
-        signerId: fieldTool === 'signature' ? selectedSigner : undefined,
+        signerId: selectedSigner || undefined,
         type: fieldTool,
         pageNumber: currentPage,
         x: x - width / 2,
         y: y - height / 2,
         width,
         height,
-        placeholder: fieldTool === 'text' ? '请填写' : undefined
+        placeholder: fieldTool === 'text' ? '请填写' : fieldTool === 'date' ? '日期' : undefined
       });
       setFields([...fields, res.data.field]);
     } catch (err: any) {
@@ -261,15 +261,17 @@ export default function ContractEditor() {
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
             <h3 className="font-semibold text-gray-900 mb-3">添加字段</h3>
-            <p className="text-xs text-gray-500 mb-3">选择工具后点击PDF放置字段</p>
+            <p className="text-xs text-gray-500 mb-3">
+              请先从上方列表选择签署方，再选择字段工具，点击PDF放置
+            </p>
             <div className="space-y-2">
               <button
                 onClick={() => setFieldTool(fieldTool === 'signature' ? null : 'signature')}
-                disabled={signers.length === 0}
+                disabled={signers.length === 0 || !selectedSigner}
                 className={`w-full py-2 px-3 text-sm rounded-md font-medium flex items-center justify-center space-x-2 transition-colors ${
                   fieldTool === 'signature'
                     ? 'bg-blue-600 text-white'
-                    : signers.length === 0
+                    : signers.length === 0 || !selectedSigner
                       ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
@@ -279,8 +281,13 @@ export default function ContractEditor() {
               </button>
               <button
                 onClick={() => setFieldTool(fieldTool === 'date' ? null : 'date')}
+                disabled={signers.length === 0 || !selectedSigner}
                 className={`w-full py-2 px-3 text-sm rounded-md font-medium flex items-center justify-center space-x-2 transition-colors ${
-                  fieldTool === 'date' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  fieldTool === 'date'
+                    ? 'bg-blue-600 text-white'
+                    : signers.length === 0 || !selectedSigner
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
                 <span>📅</span>
@@ -288,20 +295,31 @@ export default function ContractEditor() {
               </button>
               <button
                 onClick={() => setFieldTool(fieldTool === 'text' ? null : 'text')}
+                disabled={signers.length === 0 || !selectedSigner}
                 className={`w-full py-2 px-3 text-sm rounded-md font-medium flex items-center justify-center space-x-2 transition-colors ${
-                  fieldTool === 'text' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  fieldTool === 'text'
+                    ? 'bg-blue-600 text-white'
+                    : signers.length === 0 || !selectedSigner
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
                 <span>📝</span>
                 <span>文本填写框</span>
               </button>
             </div>
-            {selectedSigner && fieldTool === 'signature' && (
+            {selectedSigner && fieldTool && (
               <p className="text-xs text-blue-600 mt-2 text-center">
-                当前: 为 {signers.find(s => s.id === selectedSigner)?.name} 添加签名字段
+                当前: 为 {signers.find(s => s.id === selectedSigner)?.name} 添加
+                {fieldTool === 'signature' ? '签名' : fieldTool === 'date' ? '日期' : '文本'}字段
               </p>
             )}
-            {fieldTool && (
+            {!selectedSigner && fieldTool && (
+              <p className="text-xs text-orange-600 mt-2 text-center">
+                请先选择签署方
+              </p>
+            )}
+            {fieldTool && selectedSigner && (
               <p className="text-xs text-green-600 mt-2 text-center">点击PDF放置字段</p>
             )}
           </div>
@@ -314,11 +332,9 @@ export default function ContractEditor() {
                 <div key={f.id} className="flex items-center justify-between py-1">
                   <span className="text-gray-700">
                     {f.type === 'signature' ? '✍️ 签名' : f.type === 'date' ? '📅 日期' : '📝 文本'} #{i + 1}
-                    {f.type === 'signature' && (
-                      <span className="text-xs text-gray-500 ml-1">
-                        ({signers.find(s => s.id === f.signerId)?.name || '未分配'})
-                      </span>
-                    )}
+                    <span className="text-xs text-gray-500 ml-1">
+                      ({signers.find(s => s.id === f.signerId)?.name || '未分配'} · P{f.pageNumber})
+                    </span>
                   </span>
                   <button
                     onClick={() => handleRemoveField(f.id)}
