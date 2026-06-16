@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: #f5f7fa;
+}
+
+.field-overlay {
+  position: absolute;
+  border: 2px dashed #3b82f6;
+  background-color: rgba(59, 130, 246, 0.15);
+  cursor: move;
+  resize: both;
+  overflow: hidden;
+}
+
+.field-overlay.selected {
+  border-color: #ef4444;
+  background-color: rgba(239, 68, 68, 0.25);
+}
+
+.field-label {
+  position: absolute;
+  position: absolute;
+  top: -24px;
+  left: 0;
+  background: #3b82f6;
+  color: white;
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 4px 4px 0 0;
+  white-space: nowrap;
+}
+
+.pdf-container {
+  position: relative;
+  background: white;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.signature-canvas {
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  touch-action: none;
+}
